@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>丸高秋山 受注予想・実績管理</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --ink: #1f2933;
+    --muted: #6b7280;
+    --line: #e2e6eb;
+    --accent: #2563eb;
+    --accent-ink: #ffffff;
+    --over: #15803d;      /* 実績 > 予想 */
+    --under: #b91c1c;     /* 実績 < 予想 */
+    --warn: #dc2626;
+    --warn-bg: #fef2f2;
+    --landing: #b45309;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+    padding: 0 0 110px;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    background: #111827;
+    color: #fff;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  header h1 { font-size: 1.15rem; margin: 0; font-weight: 700; }
+  .banner {
+    font-size: 0.78rem;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #f59e0b;
+    color: #111827;
+    font-weight: 700;
+  }
+  .banner.live { background: #10b981; color: #062a1c; }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+  /* タブ */
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab {
+    flex: 1 1 120px;
+    padding: 14px 10px;
+    border: 2px solid var(--line);
+    background: var(--card);
+    border-radius: 12px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--muted);
+    cursor: pointer;
+    transition: .12s;
+  }
+  .tab.active { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+
+  /* コントロール行 */
+  .controls {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .controls label { font-weight: 700; font-size: .95rem; }
+  input[type="month"] {
+    font-size: 1.05rem; padding: 10px 12px; border: 2px solid var(--line);
+    border-radius: 10px; background: #fff; min-height: 46px;
+  }
+  .btn {
+    font-size: .95rem; font-weight: 700; padding: 11px 16px; border-radius: 10px;
+    border: 2px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+    min-height: 46px;
+  }
+  .btn.ghost { background: #fff; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.danger { background: #fff; color: var(--warn); border-color: var(--warn); }
+  .btn:active { transform: translateY(1px); }
+  .btn.small { padding: 8px 12px; min-height: 0; font-size: .85rem; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px; margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 10px; font-size: 1.0rem; }
+
+  /* メインテーブル */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 8px; text-align: center; border-bottom: 1px solid var(--line); }
+  thead th {
+    font-size: .8rem; color: var(--muted); font-weight: 700;
+    position: sticky; top: 56px; background: var(--card); z-index: 5;
+  }
+  .day-cell { font-weight: 700; text-align: left; padding-left: 12px; white-space: nowrap; }
+  .fc-cell { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 64px; }
+  td.diff { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 70px; }
+  td.diff.over { color: var(--over); }
+  td.diff.under { color: var(--under); }
+  td.diff.zero { color: var(--muted); }
+  td.diff.none { color: #cbd5e1; }
+  input.actual {
+    width: 90px; font-size: 1.1rem; text-align: right; padding: 9px 10px;
+    border: 2px solid var(--line); border-radius: 9px; font-variant-numeric: tabular-nums;
+  }
+  input.actual:focus { outline: none; border-color: var(--accent); }
+  input.actual.filled { background: #eff6ff; border-color: #bfdbfe; }
+
+  /* フッター集計 */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+  .stat {
+    background: #f8fafc; border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; text-align: center;
+  }
+  .stat .label { font-size: .78rem; color: var(--muted); font-weight: 700; }
+  .stat .value { font-size: 1.5rem; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .stat.landing { background: #fffbeb; border-color: #fde68a; }
+  .stat.landing .value { color: var(--landing); }
+  .stat.progress .value { font-size: 1.25rem; }
+  .progress-bar { height: 6px; background: #e5e7eb; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .progress-bar > span { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+
+  /* サマリー */
+  .summary-table th, .summary-table td { text-align: right; }
+  .summary-table th:first-child, .summary-table td:first-child { text-align: left; font-weight: 700; }
+  .summary-table td.land { color: var(--landing); font-weight: 800; }
+
+  /* マスター編集 */
+  #masterPanel input.mst {
+    width: 76px; font-size: 1rem; text-align: right; padding: 8px; border: 2px solid var(--line);
+    border-radius: 8px; font-variant-numeric: tabular-nums;
+  }
+  .master-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+  /* 保存バー */
+  .savebar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: rgba(255,255,255,.97); border-top: 1px solid var(--line);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 14px; justify-content: space-between;
+    box-shadow: 0 -4px 16px rgba(0,0,0,.06);
+  }
+  .savebar .status { font-size: .9rem; font-weight: 700; color: var(--muted); }
+  .savebar.dirty .status { color: var(--warn); }
+  #saveBtn { font-size: 1.05rem; padding: 14px 26px; }
+  #saveBtn.dirty { background: var(--warn); border-color: var(--warn); color: #fff; animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.55;} }
+
+  /* トースト */
+  #toast {
+    position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%) translateY(20px);
+    background: #111827; color: #fff; padding: 12px 22px; border-radius: 999px;
+    font-weight: 700; opacity: 0; pointer-events: none; transition: .25s; z-index: 40;
+    max-width: 90vw; text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { background: #991b1b; }
+
+  .muted { color: var(--muted); font-size: .85rem; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    input.actual { width: 78px; }
+    header h1 { font-size: 1.0rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>丸高秋山 受注予想・実績管理</h1>
+  <span id="modeBanner" class="banner">読み込み中…</span>
+</header>
+
+<div class="wrap">
+  <!-- 商品タブ -->
+  <div class="tabs" id="productTabs"></div>
+
+  <!-- 年月 + モード切替 -->
+  <div class="controls">
+    <label>年月
+      <input type="month" id="monthSel">
+    </label>
+    <button class="btn ghost" id="editToggle" type="button">予想マスター編集</button>
+  </div>
+
+  <!-- メイン: 曜日テーブル -->
+  <div class="card" id="mainCard">
+    <h2 id="mainTitle">実績入力</h2>
+    <table id="mainTable">
+      <thead>
+        <tr>
+          <th class="day-cell">曜日</th>
+          <th>予想</th>
+          <th>実績入力</th>
+          <th>差分</th>
+        </tr>
+      </thead>
+      <tbody id="mainBody"></tbody>
+    </table>
+
+    <!-- 集計フッター -->
+    <div class="stats">
+      <div class="stat">
+        <div class="label">予想 週合計</div>
+        <div class="value" id="stForecast">0</div>
+      </div>
+      <div class="stat">
+        <div class="label">実績合計（入力済）</div>
+        <div class="value" id="stActual">0</div>
+      </div>
+      <div class="stat landing">
+        <div class="label">★ 着地予想</div>
+        <div class="value" id="stLanding">0</div>
+      </div>
+      <div class="stat progress">
+        <div class="label">入力進捗</div>
+        <div class="value" id="stProgress">0/7</div>
+        <div class="progress-bar"><span id="progressFill"></span></div>
+      </div>
+    </div>
+    <p class="muted" id="updatedAt"></p>
+  </div>
+
+  <!-- 全体サマリー -->
+  <div class="card">
+    <h2>全体サマリー（<span id="summaryMonth"></span>）</h2>
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>商品</th>
+          <th>予想週合計</th>
+          <th>実績合計</th>
+          <th>着地予想</th>
+          <th>入力</th>
+        </tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
+    </table>
+  </div>
+
+  <!-- 予想マスター編集 -->
+  <div class="card" id="masterPanel" hidden>
+    <h2>予想マスター編集</h2>
+    <p class="muted">曜日別の予想値を手動編集して保存、または全実績の曜日別平均で再計算します。</p>
+    <table>
+      <thead>
+        <tr>
+          <th class="day-cell">商品</th>
+          <th>日曜</th><th>月曜</th><th>火曜</th><th>水曜</th><th>木曜</th><th>金曜</th><th>土曜</th><th>週合計</th>
+        </tr>
+      </thead>
+      <tbody id="masterBody"></tbody>
+    </table>
+    <div class="master-actions">
+      <button class="btn primary" id="saveMasterBtn" type="button">マスターを保存</button>
+      <button class="btn danger" id="recalcBtn" type="button">実績から再計算</button>
+    </div>
+  </div>
+</div>
+
+<!-- 保存バー -->
+<div class="savebar" id="saveBar">
+  <span class="status" id="saveStatus">変更はありません</span>
+  <button class="btn primary" id="saveBtn" type="button">実績を保存</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* =========================================================================
+ *  設定
+ * ========================================================================= */
+
+// ★ GAS Web App をデプロイしたら、その /exec URL をここに貼り付けてください。
+//   空欄のままだと「デモモード」で動作します（端末内のシードデータを操作・未保存）。
+const API_URL = "";
+
+/* =========================================================================
+ *  定数 / シード（API_URL 未設定時のデモ用。本番では GAS から取得）
+ * ========================================================================= */
+const PRODUCTS = ["乳酸菌", "中辛"];
+const DAYS = ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜"];
+
+const SEED_FORECAST_MASTER = {
+  "乳酸菌": { "日曜": 319, "月曜": 1045, "火曜": 530, "水曜": 554, "木曜": 762, "金曜": 593, "土曜": 367 },
+  "中辛":   { "日曜": 88,  "月曜": 231,  "火曜": 134, "水曜": 132, "木曜": 136, "金曜": 129, "土曜": 117 }
+};
+
+const SEED_ACTUALS = [
+  { yyyymm:"2024-06", product:"乳酸菌", "日曜":300,"月曜":780,"火曜":360,"水曜":200,"木曜":400,"金曜":450,"土曜":160 },
+  { yyyymm:"2024-07", product:"中辛",   "日曜":30,"月曜":108,"火曜":60,"水曜":50,"木曜":40,"金曜":148,"土曜":70 },
+  { yyyymm:"2024-07", product:"乳酸菌", "日曜":300,"月曜":700,"火曜":500,"水曜":320,"木曜":700,"金曜":520,"土曜":220 },
+  { yyyymm:"2024-08", product:"中辛",   "日曜":82,"月曜":276,"火曜":178,"水曜":206,"木曜":138,"金曜":240,"土曜":184 },
+  { yyyymm:"2024-08", product:"乳酸菌", "日曜":320,"月曜":760,"火曜":450,"水曜":430,"木曜":1100,"金曜":164,"土曜":210 },
+  { yyyymm:"2024-09", product:"中辛",   "日曜":92,"月曜":340,"火曜":184,"水曜":206,"木曜":196,"金曜":152,"土曜":118 },
+  { yyyymm:"2024-09", product:"乳酸菌", "日曜":330,"月曜":1000,"火曜":450,"水曜":700,"木曜":850,"金曜":520,"土曜":400 },
+  { yyyymm:"2024-10", product:"中辛",   "日曜":93,"月曜":324,"火曜":180,"水曜":158,"木曜":142,"金曜":160,"土曜":134 },
+  { yyyymm:"2024-10", product:"乳酸菌", "日曜":330,"月曜":1000,"火曜":600,"水曜":600,"木曜":720,"金曜":650,"土曜":300 },
+  { yyyymm:"2024-11", product:"中辛",   "日曜":116,"月曜":396,"火曜":136,"水曜":140,"木曜":214,"金曜":110,"土曜":138 },
+  { yyyymm:"2024-11", product:"乳酸菌", "日曜":400,"月曜":1000,"火曜":700,"水曜":720,"木曜":800,"金曜":550,"土曜":360 },
+  { yyyymm:"2024-12", product:"中辛",   "日曜":94,"月曜":258,"火曜":134,"水曜":126,"木曜":144,"金曜":96,"土曜":94 },
+  { yyyymm:"2024-12", product:"乳酸菌", "日曜":420,"月曜":1200,"火曜":520,"水曜":550,"木曜":720,"金曜":600,"土曜":300 },
+  { yyyymm:"2025-01", product:"中辛",   "日曜":86,"月曜":254,"火曜":122,"水曜":124,"木曜":156,"金曜":144,"土曜":84 },
+  { yyyymm:"2025-01", product:"乳酸菌", "日曜":300,"月曜":1200,"火曜":500,"水曜":550,"木曜":720,"金曜":660,"土曜":330 },
+  { yyyymm:"2025-02", product:"中辛",   "日曜":192,"月曜":240,"火曜":144,"水曜":132,"木曜":156,"金曜":120,"土曜":156 },
+  { yyyymm:"2025-02", product:"乳酸菌", "日曜":312,"月曜":1008,"火曜":600,"水曜":540,"木曜":804,"金曜":660,"土曜":432 },
+  { yyyymm:"2025-03", product:"中辛",   "日曜":96,"月曜":180,"火曜":180,"水曜":144,"木曜":36,"金曜":192,"土曜":144 },
+  { yyyymm:"2025-03", product:"乳酸菌", "日曜":336,"月曜":936,"火曜":672,"水曜":480,"木曜":924,"金曜":684,"土曜":420 },
+  { yyyymm:"2025-04", product:"中辛",   "日曜":120,"月曜":240,"火曜":144,"水曜":132,"木曜":120,"金曜":120,"土曜":132 },
+  { yyyymm:"2025-04", product:"乳酸菌", "日曜":480,"月曜":960,"火曜":672,"水曜":600,"木曜":756,"金曜":564,"土曜":432 },
+  { yyyymm:"2025-05", product:"中辛",   "日曜":108,"月曜":240,"火曜":156,"水曜":108,"木曜":144,"金曜":144,"土曜":108 },
+  { yyyymm:"2025-05", product:"乳酸菌", "日曜":312,"月曜":970,"火曜":660,"水曜":612,"木曜":756,"金曜":720,"土曜":384 },
+  { yyyymm:"2025-06", product:"中辛",   "日曜":48,"月曜":192,"火曜":120,"水曜":108,"木曜":132,"金曜":108,"土曜":144 },
+  { yyyymm:"2025-06", product:"乳酸菌", "日曜":240,"月曜":1062,"火曜":600,"水曜":600,"木曜":840,"金曜":672,"土曜":432 },
+  { yyyymm:"2025-07", product:"中辛",   "日曜":60,"月曜":204,"火曜":132,"水曜":156,"木曜":120,"金曜":132,"土曜":120 },
+  { yyyymm:"2025-07", product:"乳酸菌", "日曜":336,"月曜":1020,"火曜":600,"水曜":624,"木曜":850,"金曜":660,"土曜":336 },
+  { yyyymm:"2025-08", product:"中辛",   "日曜":60,"月曜":204,"火曜":144,"水曜":120,"木曜":144,"金曜":168,"土曜":120 },
+  { yyyymm:"2025-08", product:"乳酸菌", "日曜":276,"月曜":996,"火曜":612,"水曜":600,"木曜":828,"金曜":600,"土曜":480 },
+  { yyyymm:"2025-09", product:"中辛",   "日曜":84,"月曜":216,"火曜":132,"水曜":144,"木曜":120,"金曜":108,"土曜":120 },
+  { yyyymm:"2025-09", product:"乳酸菌", "日曜":312,"月曜":924,"火曜":576,"水曜":600,"木曜":744,"金曜":612,"土曜":432 },
+  { yyyymm:"2025-10", product:"中辛",   "日曜":96,"月曜":216,"火曜":132,"水曜":144,"木曜":144,"金曜":84,"土曜":144 },
+  { yyyymm:"2025-10", product:"乳酸菌", "日曜":228,"月曜":984,"火曜":564,"水曜":588,"木曜":720,"金曜":372,"土曜":420 },
+  { yyyymm:"2025-11", product:"中辛",   "日曜":48,"月曜":216,"火曜":144,"水曜":120,"木曜":120,"金曜":120,"土曜":72 },
+  { yyyymm:"2025-11", product:"乳酸菌", "日曜":300,"月曜":1152,"火曜":408,"水曜":528,"木曜":804,"金曜":636,"土曜":372 },
+  { yyyymm:"2025-12", product:"中辛",   "日曜":96,"月曜":156,"火曜":84,"水曜":120,"木曜":144,"金曜":72,"土曜":81 },
+  { yyyymm:"2025-12", product:"乳酸菌", "日曜":376,"月曜":1104,"火曜":300,"水曜":600,"木曜":780,"金曜":420,"土曜":396 },
+  { yyyymm:"2026-01", product:"中辛",   "日曜":96,"月曜":216,"火曜":60,"水曜":180,"木曜":132,"金曜":96,"土曜":72 },
+  { yyyymm:"2026-01", product:"乳酸菌", "日曜":348,"月曜":1356,"火曜":420,"水曜":744,"木曜":276,"金曜":1056,"土曜":312 },
+  { yyyymm:"2026-02", product:"中辛",   "日曜":84,"月曜":216,"火曜":144,"水曜":144,"木曜":108,"金曜":96,"土曜":120 },
+  { yyyymm:"2026-02", product:"乳酸菌", "日曜":348,"月曜":1356,"火曜":588,"水曜":528,"木曜":960,"金曜":516,"土曜":504 },
+  { yyyymm:"2026-03", product:"中辛",   "日曜":72,"月曜":204,"火曜":120,"水曜":96,"木曜":156,"金曜":120,"土曜":132 },
+  { yyyymm:"2026-03", product:"乳酸菌", "日曜":240,"月曜":1294,"火曜":492,"水曜":468,"木曜":900,"金曜":720,"土曜":420 },
+  { yyyymm:"2026-04", product:"中辛",   "日曜":72,"月曜":216,"火曜":132,"水曜":84,"木曜":192,"金曜":120,"土曜":108 },
+  { yyyymm:"2026-04", product:"乳酸菌", "日曜":288,"月曜":1176,"火曜":480,"水曜":528,"木曜":684,"金曜":840,"土曜":348 },
+  { yyyymm:"2026-05", product:"中辛",   "日曜":108,"月曜":192,"火曜":120,"水曜":84,"木曜":120,"金曜":108,"土曜":98 },
+  { yyyymm:"2026-05", product:"乳酸菌", "日曜":228,"月曜":1140,"火曜":384,"水曜":588,"木曜":648,"金曜":384,"土曜":408 }
+];
+
+const OFFLINE = !API_URL;
+
+/* =========================================================================
+ *  API レイヤ（オンライン: GAS / オフライン: 端末内シード）
+ * ========================================================================= */
+
+// オフライン用ストア（シードのディープコピー）
+let LOCAL_MASTER  = JSON.parse(JSON.stringify(SEED_FORECAST_MASTER));
+let LOCAL_ACTUALS = JSON.parse(JSON.stringify(SEED_ACTUALS));
+
+async function apiGet(params) {
+  if (OFFLINE) return offlineGet(params);
+  const url = API_URL + "?" + new URLSearchParams(params).toString();
+  const res = await fetch(url, { method: "GET" });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || "取得に失敗しました");
+  return json.data;
+}
+
+async function apiPost(payload) {
+  if (OFFLINE) return offlinePost(payload);
+  // 既存アプリと同方式: text/plain で POST（CORS プリフライト回避）
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || "保存に失敗しました");
+  return json.data;
+}
+
+function offlineGet(params) {
+  if (params.action === "master") {
+    return JSON.parse(JSON.stringify(LOCAL_MASTER));
+  }
+  if (params.action === "actuals") {
+    const ym = params.yyyymm || "";
+    return LOCAL_ACTUALS
+      .filter(r => !ym || r.yyyymm === ym)
+      .map(r => {
+        const rec = { yyyymm: r.yyyymm, product: r.product, "週合計": 0, "更新日時": r["更新日時"] || "" };
+        let total = 0;
+        DAYS.forEach(d => {
+          const v = (r[d] === undefined || r[d] === null || r[d] === "") ? null : Number(r[d]);
+          rec[d] = v;
+          if (v !== null) total += v;
+        });
+        rec["週合計"] = total;
+        return rec;
+      });
+  }
+  return null;
+}
+
+function offlinePost(payload) {
+  if (payload.action === "saveActuals") {
+    const { yyyymm, product, values } = payload;
+    let total = 0;
+    const rec = { yyyymm, product };
+    DAYS.forEach(d => {
+      const raw = values[d];
+      const v = (raw === undefined || raw === null || raw === "") ? null : Number(raw);
+      rec[d] = v;
+      if (v !== null) total += v;
+    });
+    rec["週合計"] = total;
+    rec["更新日時"] = nowStr();
+    const idx = LOCAL_ACTUALS.findIndex(r => r.yyyymm === yyyymm && r.product === product);
+    if (idx >= 0) LOCAL_ACTUALS[idx] = rec; else LOCAL_ACTUALS.push(rec);
+    return { yyyymm, product, "週合計": total, "更新日時": rec["更新日時"] };
+  }
+  if (payload.action === "saveMaster") {
+    LOCAL_MASTER = JSON.parse(JSON.stringify(payload.master));
+    return JSON.parse(JSON.stringify(LOCAL_MASTER));
+  }
+  if (payload.action === "recalcForecast") {
+    const sums = {}, counts = {};
+    PRODUCTS.forEach(p => { sums[p] = {}; counts[p] = {}; DAYS.forEach(d => { sums[p][d] = 0; counts[p][d] = 0; }); });
+    LOCAL_ACTUALS.forEach(r => {
+      const p = r.product;
+      if (!sums[p]) { sums[p] = {}; counts[p] = {}; DAYS.forEach(d => { sums[p][d] = 0; counts[p][d] = 0; }); }
+      DAYS.forEach(d => {
+        const v = r[d];
+        if (v !== null && v !== "" && v !== undefined && !isNaN(Number(v))) { sums[p][d] += Number(v); counts[p][d]++; }
+      });
+    });
+    const master = {};
+    Object.keys(sums).forEach(p => {
+      master[p] = {};
+      DAYS.forEach(d => { master[p][d] = counts[p][d] > 0 ? Math.round(sums[p][d] / counts[p][d]) : 0; });
+    });
+    LOCAL_MASTER = master;
+    return JSON.parse(JSON.stringify(LOCAL_MASTER));
+  }
+  return null;
+}
+
+/* =========================================================================
+ *  状態
+ * ========================================================================= */
+const state = {
+  product: PRODUCTS[0],
+  yyyymm: currentYm(),
+  master: {},            // { 商品: { 曜日: 数値 } }
+  monthRecords: [],      // 選択年月の実績レコード配列（両商品）
+  actual: {},            // 現在の商品×年月の入力値 { 曜日: 数値|null }
+  updatedAt: "",
+  dirty: false,
+  editMode: false
+};
+
+/* =========================================================================
+ *  ユーティリティ
+ * ========================================================================= */
+function currentYm() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+function nowStr() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth()+1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+function fmt(n) { return (n === null || n === undefined || isNaN(n)) ? "—" : Number(n).toLocaleString("ja-JP"); }
+function parseInput(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === "") return null;
+  const n = Number(s);
+  return isNaN(n) ? null : n;
+}
+
+/* =========================================================================
+ *  集計ロジック
+ * ========================================================================= */
+function computeStats(forecast, actualMap) {
+  let fSum = 0, aSum = 0, entered = 0, landing = 0;
+  DAYS.forEach(d => {
+    const f = Number(forecast && forecast[d]) || 0;
+    fSum += f;
+    const a = actualMap[d];
+    if (a !== null && a !== undefined && a !== "") {
+      aSum += Number(a);
+      landing += Number(a);
+      entered++;
+    } else {
+      landing += f;   // 未入力の曜日は予想値で補完
+    }
+  });
+  return { fSum, aSum, entered, landing };
+}
+
+// 商品ごとの実績マップ（現在商品はライブの state.actual、他商品は保存済みレコード）
+function actualMapFor(product) {
+  if (product === state.product) return state.actual;
+  const rec = state.monthRecords.find(r => r.product === product);
+  const m = {};
+  DAYS.forEach(d => { m[d] = (rec && rec[d] !== null && rec[d] !== undefined) ? rec[d] : null; });
+  return m;
+}
+
+/* =========================================================================
+ *  描画
+ * ========================================================================= */
+function renderTabs() {
+  const el = document.getElementById("productTabs");
+  el.innerHTML = "";
+  PRODUCTS.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "tab" + (p === state.product ? " active" : "");
+    b.textContent = p;
+    b.type = "button";
+    b.addEventListener("click", () => switchProduct(p));
+    el.appendChild(b);
+  });
+}
+
+function renderTable() {
+  document.getElementById("mainTitle").textContent = state.product + " 実績入力（" + state.yyyymm + "）";
+  const forecast = state.master[state.product] || {};
+  const body = document.getElementById("mainBody");
+  body.innerHTML = "";
+
+  DAYS.forEach(d => {
+    const tr = document.createElement("tr");
+
+    const tdDay = document.createElement("td");
+    tdDay.className = "day-cell";
+    tdDay.textContent = d;
+
+    const tdFc = document.createElement("td");
+    tdFc.className = "fc-cell";
+    tdFc.textContent = fmt(Number(forecast[d]) || 0);
+
+    const tdIn = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.className = "actual";
+    inp.type = "text";
+    inp.inputMode = "numeric";
+    inp.setAttribute("pattern", "[0-9]*");
+    inp.dataset.day = d;
+    const val = state.actual[d];
+    inp.value = (val === null || val === undefined) ? "" : val;
+    if (inp.value !== "") inp.classList.add("filled");
+    inp.addEventListener("input", onActualInput);
+    tdIn.appendChild(inp);
+
+    const tdDiff = document.createElement("td");
+    tdDiff.className = "diff";
+    tdDiff.dataset.day = d;
+
+    tr.append(tdDay, tdFc, tdIn, tdDiff);
+    body.appendChild(tr);
+
+    updateDiffCell(d);
+  });
+
+  updateFooter();
+}
+
+function updateDiffCell(day) {
+  const cell = document.querySelector('#mainBody td.diff[data-day="' + day + '"]');
+  if (!cell) return;
+  const forecast = state.master[state.product] || {};
+  const f = Number(forecast[day]) || 0;
+  const a = state.actual[day];
+  cell.classList.remove("over", "under", "zero", "none");
+  if (a === null || a === undefined || a === "") {
+    cell.textContent = "—";
+    cell.classList.add("none");
+    return;
+  }
+  const diff = Number(a) - f;
+  cell.textContent = (diff > 0 ? "+" : "") + diff.toLocaleString("ja-JP");
+  cell.classList.add(diff > 0 ? "over" : (diff < 0 ? "under" : "zero"));
+}
+
+function updateFooter() {
+  const forecast = state.master[state.product] || {};
+  const s = computeStats(forecast, state.actual);
+  document.getElementById("stForecast").textContent = fmt(s.fSum);
+  document.getElementById("stActual").textContent = fmt(s.aSum);
+  document.getElementById("stLanding").textContent = fmt(s.landing);
+  document.getElementById("stProgress").textContent = s.entered + "/7";
+  document.getElementById("progressFill").style.width = Math.round(s.entered / 7 * 100) + "%";
+  const upd = document.getElementById("updatedAt");
+  upd.textContent = state.updatedAt ? ("最終更新: " + state.updatedAt) : "";
+}
+
+function renderSummary() {
+  document.getElementById("summaryMonth").textContent = state.yyyymm;
+  const body = document.getElementById("summaryBody");
+  body.innerHTML = "";
+  PRODUCTS.forEach(p => {
+    const forecast = state.master[p] || {};
+    const s = computeStats(forecast, actualMapFor(p));
+    const tr = document.createElement("tr");
+    const cells = [
+      p,
+      fmt(s.fSum),
+      fmt(s.aSum),
+      fmt(s.landing),
+      s.entered + "/7"
+    ];
+    cells.forEach((c, i) => {
+      const td = document.createElement("td");
+      td.textContent = c;
+      if (i === 3) td.className = "land";
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+
+function renderMaster() {
+  const body = document.getElementById("masterBody");
+  body.innerHTML = "";
+  PRODUCTS.forEach(p => {
+    const tr = document.createElement("tr");
+    const tdName = document.createElement("td");
+    tdName.className = "day-cell";
+    tdName.textContent = p;
+    tr.appendChild(tdName);
+
+    DAYS.forEach(d => {
+      const td = document.createElement("td");
+      const inp = document.createElement("input");
+      inp.className = "mst";
+      inp.type = "text";
+      inp.inputMode = "numeric";
+      inp.dataset.product = p;
+      inp.dataset.day = d;
+      inp.value = Number((state.master[p] || {})[d]) || 0;
+      inp.addEventListener("input", updateMasterTotals);
+      td.appendChild(inp);
+      tr.appendChild(td);
+    });
+
+    const tdTotal = document.createElement("td");
+    tdTotal.className = "fc-cell mst-total";
+    tdTotal.dataset.product = p;
+    tr.appendChild(tdTotal);
+
+    body.appendChild(tr);
+  });
+  updateMasterTotals();
+}
+
+function updateMasterTotals() {
+  PRODUCTS.forEach(p => {
+    let sum = 0;
+    document.querySelectorAll('#masterBody input.mst[data-product="' + p + '"]').forEach(inp => {
+      sum += parseInput(inp.value) || 0;
+    });
+    const cell = document.querySelector('#masterBody td.mst-total[data-product="' + p + '"]');
+    if (cell) cell.textContent = fmt(sum);
+  });
+}
+
+/* =========================================================================
+ *  保存バー / トースト
+ * ========================================================================= */
+function markDirty(dirty) {
+  state.dirty = dirty;
+  const bar = document.getElementById("saveBar");
+  const btn = document.getElementById("saveBtn");
+  const status = document.getElementById("saveStatus");
+  if (dirty) {
+    bar.classList.add("dirty");
+    btn.classList.add("dirty");
+    status.textContent = "未保存の変更があります";
+  } else {
+    bar.classList.remove("dirty");
+    btn.classList.remove("dirty");
+    status.textContent = "変更はありません";
+  }
+}
+
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ""; }, 2600);
+}
+
+/* =========================================================================
+ *  イベント
+ * ========================================================================= */
+function onActualInput(e) {
+  const day = e.target.dataset.day;
+  const v = parseInput(e.target.value);
+  state.actual[day] = v;
+  e.target.classList.toggle("filled", e.target.value.trim() !== "");
+  updateDiffCell(day);
+  updateFooter();
+  renderSummary();   // 全体サマリーもライブ追従
+  markDirty(true);
+}
+
+async function switchProduct(p) {
+  if (p === state.product) return;
+  if (state.dirty && !confirm("未保存の実績があります。破棄して切り替えますか？")) return;
+  state.product = p;
+  renderTabs();
+  setActualFromRecords();
+  markDirty(false);
+  renderTable();
+  renderSummary();
+}
+
+async function onMonthChange(e) {
+  const ym = e.target.value;
+  if (!ym) return;
+  if (state.dirty && !confirm("未保存の実績があります。破棄して切り替えますか？")) {
+    e.target.value = state.yyyymm;
+    return;
+  }
+  state.yyyymm = ym;
+  await loadMonth();
+  markDirty(false);
+  renderTable();
+  renderSummary();
+}
+
+function setActualFromRecords() {
+  const rec = state.monthRecords.find(r => r.product === state.product);
+  state.actual = {};
+  DAYS.forEach(d => { state.actual[d] = (rec && rec[d] !== null && rec[d] !== undefined) ? rec[d] : null; });
+  state.updatedAt = (rec && rec["更新日時"]) ? rec["更新日時"] : "";
+}
+
+async function loadMaster() {
+  state.master = await apiGet({ action: "master" });
+}
+
+async function loadMonth() {
+  state.monthRecords = await apiGet({ action: "actuals", yyyymm: state.yyyymm });
+  setActualFromRecords();
+}
+
+async function saveActuals() {
+  const btn = document.getElementById("saveBtn");
+  btn.disabled = true;
+  try {
+    const values = {};
+    DAYS.forEach(d => { values[d] = state.actual[d]; });
+    await apiPost({ action: "saveActuals", yyyymm: state.yyyymm, product: state.product, values });
+    await loadMonth();              // 保存後に再取得して整合
+    markDirty(false);
+    renderTable();
+    renderSummary();
+    toast("保存しました ✓");
+  } catch (err) {
+    toast("保存に失敗: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function saveMaster() {
+  const master = {};
+  PRODUCTS.forEach(p => {
+    master[p] = {};
+    DAYS.forEach(d => {
+      const inp = document.querySelector('#masterBody input.mst[data-product="' + p + '"][data-day="' + d + '"]');
+      master[p][d] = parseInput(inp.value) || 0;
+    });
+  });
+  try {
+    state.master = await apiPost({ action: "saveMaster", master });
+    renderTable();
+    renderSummary();
+    renderMaster();
+    toast("予想マスターを保存しました ✓");
+  } catch (err) {
+    toast("保存に失敗: " + err.message, true);
+  }
+}
+
+async function recalcForecast() {
+  if (!confirm("全実績の曜日別平均で予想マスターを再計算し、上書きします。よろしいですか？")) return;
+  try {
+    state.master = await apiPost({ action: "recalcForecast" });
+    renderTable();
+    renderSummary();
+    renderMaster();
+    toast("実績から再計算しました ✓");
+  } catch (err) {
+    toast("再計算に失敗: " + err.message, true);
+  }
+}
+
+function toggleEditMode() {
+  state.editMode = !state.editMode;
+  const panel = document.getElementById("masterPanel");
+  panel.hidden = !state.editMode;
+  document.getElementById("editToggle").textContent = state.editMode ? "編集を閉じる" : "予想マスター編集";
+  if (state.editMode) {
+    renderMaster();
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+/* =========================================================================
+ *  初期化
+ * ========================================================================= */
+function setBanner() {
+  const b = document.getElementById("modeBanner");
+  if (OFFLINE) {
+    b.textContent = "デモモード（API_URL 未設定）";
+    b.className = "banner";
+  } else {
+    b.textContent = "接続中";
+    b.className = "banner live";
+  }
+}
+
+async function init() {
+  setBanner();
+  const monthSel = document.getElementById("monthSel");
+  monthSel.value = state.yyyymm;
+  monthSel.addEventListener("change", onMonthChange);
+  document.getElementById("editToggle").addEventListener("click", toggleEditMode);
+  document.getElementById("saveBtn").addEventListener("click", saveActuals);
+  document.getElementById("saveMasterBtn").addEventListener("click", saveMaster);
+  document.getElementById("recalcBtn").addEventListener("click", recalcForecast);
+  window.addEventListener("beforeunload", e => {
+    if (state.dirty) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  renderTabs();
+  markDirty(false);
+
+  try {
+    await loadMaster();
+    await loadMonth();
+    renderTable();
+    renderSummary();
+  } catch (err) {
+    toast("読み込みに失敗: " + err.message, true);
+    document.getElementById("mainTitle").textContent = "読み込みエラー";
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
