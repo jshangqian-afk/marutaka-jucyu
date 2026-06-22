@@ -254,7 +254,7 @@
   <!-- 予想マスター編集 -->
   <div class="card" id="masterPanel" hidden>
     <h2>予想マスター編集</h2>
-    <p class="muted">曜日別の予想値を手動編集して保存、または全実績の曜日別平均で再計算します。</p>
+    <p class="muted">予想は実績を保存するたびに<b>直近6ヶ月の平均</b>（入力中の当月は除外）で自動更新されます。手動で値を編集して保存することもできます（次の実績保存時に上書きされます）。</p>
     <table>
       <thead>
         <tr>
@@ -266,7 +266,7 @@
     </table>
     <div class="master-actions">
       <button class="btn primary" id="saveMasterBtn" type="button">マスターを保存</button>
-      <button class="btn danger" id="recalcBtn" type="button">実績から再計算</button>
+      <button class="btn danger" id="recalcBtn" type="button">直近6ヶ月で再計算</button>
     </div>
   </div>
 </div>
@@ -293,6 +293,10 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyWmxlPLuoi5iXZQ4k4DTS2
  * ========================================================================= */
 const PRODUCTS = ["乳酸菌", "中辛"];
 const DAYS = ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜"];
+
+// 予想算出の設定（直近 N ヶ月の代表値で予想を再計算。バックエンドと一致させる）
+const FORECAST_WINDOW = 6;        // 直近何ヶ月を母集団にするか
+const FORECAST_METHOD = "mean";   // "mean"（平均） | "median"（中央値）
 
 const SEED_FORECAST_MASTER = {
   "乳酸菌": { "日曜": 319, "月曜": 1045, "火曜": 530, "水曜": 554, "木曜": 762, "金曜": 593, "土曜": 367 },
@@ -419,32 +423,55 @@ function offlinePost(payload) {
     rec["更新日時"] = nowStr();
     const idx = LOCAL_ACTUALS.findIndex(r => r.yyyymm === yyyymm && r.product === product);
     if (idx >= 0) LOCAL_ACTUALS[idx] = rec; else LOCAL_ACTUALS.push(rec);
-    return { yyyymm, product, "週合計": total, "更新日時": rec["更新日時"] };
+    // 保存時に自動再計算（入力中の当月は除外）
+    const master = (payload.autoRecalc === false)
+      ? JSON.parse(JSON.stringify(LOCAL_MASTER))
+      : offlineRecalc(yyyymm);
+    return { yyyymm, product, "週合計": total, "更新日時": rec["更新日時"], master };
   }
   if (payload.action === "saveMaster") {
     LOCAL_MASTER = JSON.parse(JSON.stringify(payload.master));
     return JSON.parse(JSON.stringify(LOCAL_MASTER));
   }
   if (payload.action === "recalcForecast") {
-    const sums = {}, counts = {};
-    PRODUCTS.forEach(p => { sums[p] = {}; counts[p] = {}; DAYS.forEach(d => { sums[p][d] = 0; counts[p][d] = 0; }); });
-    LOCAL_ACTUALS.forEach(r => {
-      const p = r.product;
-      if (!sums[p]) { sums[p] = {}; counts[p] = {}; DAYS.forEach(d => { sums[p][d] = 0; counts[p][d] = 0; }); }
-      DAYS.forEach(d => {
-        const v = r[d];
-        if (v !== null && v !== "" && v !== undefined && !isNaN(Number(v))) { sums[p][d] += Number(v); counts[p][d]++; }
-      });
-    });
-    const master = {};
-    Object.keys(sums).forEach(p => {
-      master[p] = {};
-      DAYS.forEach(d => { master[p][d] = counts[p][d] > 0 ? Math.round(sums[p][d] / counts[p][d]) : 0; });
-    });
-    LOCAL_MASTER = master;
-    return JSON.parse(JSON.stringify(LOCAL_MASTER));
+    return offlineRecalc(payload.excludeYm || "", payload.window, payload.method);
   }
   return null;
+}
+
+// 直近 N ヶ月の代表値で予想を再計算（GAS の recalcForecast と同ロジック）
+function offlineRecalc(excludeYm, win, method) {
+  win = Number(win) > 0 ? Number(win) : FORECAST_WINDOW;
+  method = method || FORECAST_METHOD;
+  const byP = {};
+  LOCAL_ACTUALS.forEach(r => {
+    if (excludeYm && r.yyyymm === excludeYm) return;
+    (byP[r.product] = byP[r.product] || []).push(r);
+  });
+  const master = {};
+  PRODUCTS.forEach(p => {
+    master[p] = {};
+    const rows = (byP[p] || []).slice().sort((a, b) => a.yyyymm < b.yyyymm ? 1 : (a.yyyymm > b.yyyymm ? -1 : 0));
+    const recent = rows.slice(0, win);
+    DAYS.forEach(d => {
+      const vals = recent.map(r => r[d])
+        .filter(v => v !== null && v !== "" && v !== undefined && !isNaN(Number(v)))
+        .map(Number);
+      master[p][d] = aggregate(vals, method);
+    });
+  });
+  LOCAL_MASTER = master;
+  return JSON.parse(JSON.stringify(master));
+}
+
+function aggregate(vals, method) {
+  if (!vals.length) return 0;
+  if (method === "median") {
+    const s = vals.slice().sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  }
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 }
 
 /* =========================================================================
@@ -758,12 +785,16 @@ async function saveActuals() {
   try {
     const values = {};
     DAYS.forEach(d => { values[d] = state.actual[d]; });
-    await apiPost({ action: "saveActuals", yyyymm: state.yyyymm, product: state.product, values });
+    const res = await apiPost({ action: "saveActuals", yyyymm: state.yyyymm, product: state.product, values });
+    // 自動再計算後の予想マスターを反映（旧バックエンド互換: 無ければ再取得）
+    if (res && res.master) state.master = res.master;
+    else await loadMaster();
     await loadMonth();              // 保存後に再取得して整合
     markDirty(false);
     renderTable();
     renderSummary();
-    toast("保存しました ✓");
+    if (state.editMode) renderMaster();
+    toast("保存しました ✓（予想を直近6ヶ月で更新）");
   } catch (err) {
     toast("保存に失敗: " + err.message, true);
   } finally {
@@ -792,9 +823,9 @@ async function saveMaster() {
 }
 
 async function recalcForecast() {
-  if (!confirm("全実績の曜日別平均で予想マスターを再計算し、上書きします。よろしいですか？")) return;
+  if (!confirm("直近6ヶ月の実績（入力中の当月は除く）で予想マスターを再計算し、上書きします。よろしいですか？")) return;
   try {
-    state.master = await apiPost({ action: "recalcForecast" });
+    state.master = await apiPost({ action: "recalcForecast", excludeYm: state.yyyymm });
     renderTable();
     renderSummary();
     renderMaster();

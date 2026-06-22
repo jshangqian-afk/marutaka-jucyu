@@ -26,6 +26,10 @@ var ACTUALS_HEADER = ['年月', '商品'].concat(DAYS).concat(['週合計', '更
 // マスターシートの列構成: 商品 | 日〜土(7)
 var MASTER_HEADER  = ['商品'].concat(DAYS);
 
+// 予想算出の設定（直近 N ヶ月の代表値で予想を再計算）
+var FORECAST_WINDOW = 6;        // 直近何ヶ月を母集団にするか
+var FORECAST_METHOD = 'mean';   // 'mean'（平均） | 'median'（中央値）
+
 // ===== seed（seed-data.json をベタ書き。GAS は外部ファイルを読めないため） =====
 var SEED_FORECAST_MASTER = {
   '乳酸菌': { '日曜': 319, '月曜': 1045, '火曜': 530, '水曜': 554, '木曜': 762, '金曜': 593, '土曜': 367 },
@@ -130,7 +134,7 @@ function doPost(e) {
       return jsonOut({ ok: true, data: saveMaster(body) });
     }
     if (action === 'recalcForecast') {
-      return jsonOut({ ok: true, data: recalcForecast() });
+      return jsonOut({ ok: true, data: recalcForecast(body) });
     }
     return jsonOut({ ok: false, error: 'unknown action: ' + action });
   } catch (err) {
@@ -259,7 +263,16 @@ function saveActuals(body) {
     sh.appendRow(rowVals);
   }
 
-  return { yyyymm: yyyymm, product: product, '週合計': total, '更新日時': formatTs(now) };
+  var result = { yyyymm: yyyymm, product: product, '週合計': total, '更新日時': formatTs(now) };
+
+  // 実績保存時に予想マスターを自動再計算（入力中の当月は母集団から除外）。
+  // body.autoRecalc === false の場合のみスキップ。
+  if (body.autoRecalc === false) {
+    result.master = readMaster();
+  } else {
+    result.master = recalcForecast({ excludeYm: yyyymm });
+  }
+  return result;
 }
 
 /**
@@ -285,42 +298,56 @@ function saveMaster(body) {
 }
 
 /**
- * 実績全件から曜日別平均を再計算し、マスターを上書き。
- * 空欄（未入力）の曜日は平均計算の母数に含めない。
+ * 直近 N ヶ月の実績から曜日別の代表値（平均/中央値）を算出し、マスターを上書き。
+ *   opts.excludeYm : この年月を母集団から除外（入力中の当月など）
+ *   opts.window    : 直近何ヶ月を使うか（既定 FORECAST_WINDOW）
+ *   opts.method    : 'mean' | 'median'（既定 FORECAST_METHOD）
+ * 空欄（未入力）の曜日は母数に含めない。
  */
-function recalcForecast() {
-  var actuals = readActuals('');
-  var sums = {};
-  var counts = {};
-  PRODUCTS.forEach(function (p) {
-    sums[p] = {}; counts[p] = {};
-    DAYS.forEach(function (d) { sums[p][d] = 0; counts[p][d] = 0; });
-  });
+function recalcForecast(opts) {
+  opts = opts || {};
+  var excludeYm = opts.excludeYm || '';
+  var win = Number(opts.window) > 0 ? Number(opts.window) : FORECAST_WINDOW;
+  var method = opts.method || FORECAST_METHOD;
 
+  var actuals = readActuals('');
+  var byProduct = {};
   actuals.forEach(function (r) {
-    var p = r.product;
-    if (!sums[p]) {
-      sums[p] = {}; counts[p] = {};
-      DAYS.forEach(function (d) { sums[p][d] = 0; counts[p][d] = 0; });
-    }
-    DAYS.forEach(function (d) {
-      var v = r[d];
-      if (v !== null && v !== '' && !isNaN(Number(v))) {
-        sums[p][d] += Number(v);
-        counts[p][d] += 1;
-      }
-    });
+    if (excludeYm && r.yyyymm === excludeYm) return;
+    (byProduct[r.product] = byProduct[r.product] || []).push(r);
   });
 
   var master = {};
-  Object.keys(sums).forEach(function (p) {
+  PRODUCTS.forEach(function (p) {
     master[p] = {};
+    // 年月の新しい順に並べ、直近 win ヶ月だけを使う
+    var rows = (byProduct[p] || []).slice().sort(function (a, b) {
+      return a.yyyymm < b.yyyymm ? 1 : (a.yyyymm > b.yyyymm ? -1 : 0);
+    });
+    var recent = rows.slice(0, win);
     DAYS.forEach(function (d) {
-      master[p][d] = counts[p][d] > 0 ? Math.round(sums[p][d] / counts[p][d]) : 0;
+      var vals = [];
+      recent.forEach(function (r) {
+        var v = r[d];
+        if (v !== null && v !== '' && !isNaN(Number(v))) vals.push(Number(v));
+      });
+      master[p][d] = aggregate(vals, method);
     });
   });
 
   return saveMaster({ master: master });
+}
+
+/** 数値配列の代表値（平均/中央値）を整数で返す。空配列は 0。 */
+function aggregate(vals, method) {
+  if (!vals.length) return 0;
+  if (method === 'median') {
+    var s = vals.slice().sort(function (a, b) { return a - b; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  }
+  var sum = vals.reduce(function (a, b) { return a + b; }, 0);
+  return Math.round(sum / vals.length);
 }
 
 // =========================================================================
